@@ -1,15 +1,21 @@
 {
   "name": "backend",
   "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "typecheck": "bun check"
-  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "prisma": "6"
   },
   "peerDependencies": {
     "typescript": "^7"
+  },
+  "private": true,
+  "scripts": {
+    "typecheck": "bun check",
+    "postinstall": "prisma skills sync || exit 0"
+  },
+  "type": "module",
+  "dependencies": {
+    "@prisma/client": "6",
+    "zod": "^4.6.7"
   }
 }

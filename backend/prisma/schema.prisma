@@ -1,0 +1,55 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String
+  role      String    @default("VIEWER") // VIEWER sau STREAMER
+  createdAt DateTime  @default(now())
+  streams   Stream[]
+  orders    Order[]
+}
+
+model Stream {
+  id          String    @id @default(uuid())
+  title       String
+  isLive      Boolean   @default(false)
+  playbackUrl String?   // URL-ul .m3u8 pentru player
+  streamKey   String?   // Stream Key pentru OBS
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  products    Product[]
+  createdAt   DateTime  @default(now())
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  price       Float
+  stock       Int      @default(1)
+  imageUrl    String?
+  isPinned    Boolean  @default(false) // Produsul promovat activ pe video
+  streamId    String
+  stream      Stream   @relation(fields: [streamId], references: [id])
+  orders      Order[]
+  createdAt   DateTime @default(now())
+}
+
+model Order {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  price     Float
+  status    String   @default("COMPLETED")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+}
