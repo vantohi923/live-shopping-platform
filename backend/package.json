@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "module": "index.ts",
+  "module": "src/index.ts",
   "devDependencies": {
     "@types/bun": "latest",
     "prisma": "6"
@@ -10,6 +10,8 @@
   },
   "private": true,
   "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
     "typecheck": "bun check",
     "postinstall": "prisma skills sync || exit 0"
   },
