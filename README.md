@@ -297,13 +297,17 @@ Nu trec la ziua următoare până nu pot răspunde la întrebările de verificar
 5. Mut endpoint-urile în `modules/users`, `modules/streams`, `modules/products` (routes + service).
 6. `src/routes.ts` — folosesc opțiunea `routes` din `Bun.serve` în loc de `if`-uri:
    ```ts
-   routes: {
+   export const routes = {
      "/health": { GET: handle(() => json({ status: "ok" })) },
-     "/api/streams": { GET: handle(listStreams), POST: handle(createStream) },
-     "/api/streams/:id": { GET: handle(getStream) }, // req.params.id
-   }
+     "/api/streams": { GET: handle(getStreams), POST: handle(postStream) },
+   };
+
+   export const fallback = handle((req: Request) => {
+     if (req.method === "OPTIONS") return preflight();
+     return json({ error: "Not Found" }, 404);
+   });
    ```
-   (Verific în documentația Bun cum se tratează `OPTIONS` pentru preflight.)
+   Bun trimite la `fallback` orice cerere fără rută potrivită (URL inexistent **sau** metodă nedefinită), deci preflight-ul `OPTIONS` și `404` se tratează într-un singur loc.
 7. `src/index.ts` doar pornește serverul. Actualizez `package.json`: `"dev": "bun --watch src/index.ts"`.
 8. Testez manual toate endpoint-urile vechi (Postman / Thunder Client / `curl`) → răspund la fel.
 
@@ -320,6 +324,89 @@ Nu trec la ziua următoare până nu pot răspunde la întrebările de verificar
 - De ce `routes.ts` nu importă nimic din Prisma?
 
 **Gata când:** toate endpoint-urile vechi merg, `index.ts` are sub 15 linii, iar un body JSON invalid întoarce `400`, nu crash.
+
+#### ✅ Rezultat Ziua 1: ce am construit și cum se leagă
+
+**Cine pe cine folosește (importuri):**
+
+```mermaid
+flowchart TB
+    DOTENV[".env<br/>DATABASE_URL, PORT, FRONTEND_URL"]
+
+    subgraph SRC["backend/src"]
+        INDEX["index.ts<br/>pornește Bun.serve"]
+        ENV["config/env.ts<br/>validează .env cu Zod<br/>(fail fast)"]
+        ROUTES["routes.ts<br/>harta URL → handler<br/>+ fallback: OPTIONS și 404"]
+
+        subgraph LIB["lib/ — unelte generale"]
+            HTTP["http.ts<br/>handle() · json() · readJson()<br/>HttpError · CORS"]
+            PRISMA["prisma.ts<br/>un singur PrismaClient"]
+        end
+
+        subgraph MOD["modules/ — logica aplicației"]
+            UR["users.routes.ts"] --> US["users.service.ts"]
+            SR["streams.routes.ts"] --> SS["streams.service.ts"]
+            PR["products.routes.ts"] --> PS["products.service.ts"]
+        end
+    end
+
+    subgraph DOCKER["Docker (docker-compose.yml)"]
+        PG[("PostgreSQL<br/>localhost:5432")]
+        REDIS[("Redis<br/>localhost:6379<br/>folosit din Ziua 9")]
+    end
+
+    DOTENV -.->|citit automat de Bun| ENV
+    INDEX --> ENV
+    INDEX --> ROUTES
+    ROUTES --> HTTP
+    ROUTES --> UR
+    ROUTES --> SR
+    ROUTES --> PR
+    HTTP -.->|FRONTEND_URL pentru CORS| ENV
+    US --> PRISMA
+    SS --> PRISMA
+    PS --> PRISMA
+    PRISMA -.->|DATABASE_URL| ENV
+    PRISMA -->|SQL prin TCP| PG
+```
+
+Regula vizibilă în diagramă: fișierele `*.routes.ts` nu ating niciodată `prisma.ts`, iar fișierele `*.service.ts` nu știu nimic de HTTP.
+
+**Drumul unei cereri (exemplu: `POST /api/streams`):**
+
+```mermaid
+sequenceDiagram
+    participant C as Client (browser / curl)
+    participant B as Bun.serve
+    participant H as handle()
+    participant R as postStream<br/>(streams.routes.ts)
+    participant S as createStream<br/>(streams.service.ts)
+    participant DB as PostgreSQL
+
+    C->>B: POST /api/streams {"title": "..."}
+    B->>H: găsește ruta în routes.ts
+    H->>R: try { postStream(req) }
+    R->>S: createStream(title)
+    S->>DB: SELECT primul user
+    S->>DB: INSERT INTO "Stream"
+    DB-->>S: rândul creat
+    S-->>R: stream
+    R-->>H: json(stream, 201)
+    H-->>C: 201 + header-e CORS
+    Note over H: Dacă ceva aruncă eroare:<br/>HttpError → status-ul ei (400, 404...)<br/>orice altceva → 500 generic + log în consolă
+```
+
+**Endpoint-uri active după Ziua 1:**
+
+| Metodă | URL | Modul | Răspuns |
+|---|---|---|---|
+| `GET` | `/health` | — (direct în `routes.ts`) | `200` `{"status":"ok"}` |
+| `POST` | `/api/users/seed` | `users` | `201` userul demo |
+| `GET` | `/api/streams` | `streams` | `200` live-urile cu produse și streamer |
+| `POST` | `/api/streams` | `streams` | `201` live nou |
+| `POST` | `/api/products` | `products` | `201` produs nou / `400` dacă lipsesc câmpuri |
+| `OPTIONS` | orice URL | `fallback` | `204` preflight CORS |
+| orice altceva | — | `fallback` | `404` `{"error":"Not Found"}` |
 
 ---
 
