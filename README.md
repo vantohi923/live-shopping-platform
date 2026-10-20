@@ -408,6 +408,94 @@ sequenceDiagram
 | `OPTIONS` | orice URL | `fallback` | `204` preflight CORS |
 | orice altceva | — | `fallback` | `404` `{"error":"Not Found"}` |
 
+**Cum se ramifică proiectul, pornind de la `index.ts`:**
+
+```
+src/index.ts                         ← pornește serverul (o singură dată)
+├── config/env.ts                    ← RAMURA 1: setările (.env validat cu Zod)
+└── routes.ts                        ← RAMURA 2: harta URL → handler
+    ├── lib/http.ts                  ← handle(), json(), preflight(), CORS
+    ├── modules/users/users.routes.ts
+    │   └── users.service.ts ─────────┐
+    ├── modules/streams/streams.routes.ts
+    │   └── streams.service.ts ───────┤
+    └── modules/products/products.routes.ts
+        └── products.service.ts ──────┤
+                                      ↓
+                               lib/prisma.ts  ← punctul de întâlnire din cod
+                                      ↓
+                               PostgreSQL     ← punctul de întâlnire al datelor
+```
+
+- **`index.ts`** rulează o singură dată, la pornire: încarcă setările și rutele, apoi pornește `Bun.serve`.
+- **O cerere nu trece prin `index.ts`**, ci intră direct prin `routes.ts`.
+- **La ducere**, toate ramurile se unesc în `lib/prisma.ts` → PostgreSQL. **La întoarcere**, toate răspunsurile trec prin `handle()`, care adaugă CORS și tratează erorile.
+- Modulele nu se cheamă unul pe altul în cod; se leagă **prin date** (foreign keys: un user are live-uri, un live are produse).
+
+**Exemplu real: drumul unei cereri prin toate fișierele**
+
+Streamer-ul adaugă o curea la live-ul cu ceasuri. Cererea a fost trimisă pe serverul real; valorile de mai jos sunt cele primite.
+
+```
+POST http://localhost:4000/api/products
+Content-Type: application/json
+
+{ "streamId": "b3897c80-bbc2-408c-bc8e-0b588c706eb1", "title": "Curea piele maro", "price": "89.90", "stock": 5 }
+```
+
+| Pas | Unde | Ce se întâmplă |
+|---|---|---|
+| 1 | `Bun.serve` (din `index.ts`) | Primește cererea pe portul 4000, găsește calea `/api/products` și metoda `POST` |
+| 2 | `routes.ts` | Direcționează spre `handle(postProduct)` |
+| 3 | `handle()` în `lib/http.ts` | Deschide `try/catch`, cheamă `postProduct(req)` |
+| 4 | `postProduct` în `products.routes.ts` | `readJson` transformă textul în obiect; verifică `streamId`, `title`, `price` → toate există |
+| 5 | `createProduct` în `products.service.ts` | Completează lipsurile și transformă valorile (tabelul de mai jos) |
+| 6 | `lib/prisma.ts` → PostgreSQL | `INSERT INTO "Product"`; Postgres verifică foreign key-ul `streamId`, generează `id` și `createdAt` |
+| 7 | `createProduct` → `postProduct` | Rândul creat urcă înapoi; `json(product, 201)` |
+| 8 | `handle()` | Nicio eroare → adaugă header-ele CORS |
+| 9 | Bun → client | `201 Created` + produsul complet |
+
+Ce face service-ul cu fiecare câmp (pasul 5):
+
+| Câmp | Primit | Codul | Rezultat |
+|---|---|---|---|
+| `title` | `"Curea piele maro"` | așa cum e | `"Curea piele maro"` |
+| `description` | lipsește | `input.description \|\| ""` | `""` |
+| `price` | `"89.90"` (text) | `Number(input.price)` | **`89.9` (număr)** |
+| `stock` | `5` | `input.stock ?? 10` | `5` |
+| `imageUrl` | lipsește | poza implicită | `https://images.unsplash.com/...` |
+| `isPinned` | lipsește | `input.isPinned ?? false` | `false` |
+
+Răspunsul real primit:
+
+```
+HTTP/1.1 201 Created
+Access-Control-Allow-Origin: http://localhost:3000        ← adăugat de handle()
+
+{
+  "id": "6f21bcf0-88a2-4dd0-86b4-a67441917f63",   ← generat de Postgres
+  "title": "Curea piele maro",
+  "description": "",                               ← completat de service
+  "price": 89.9,                                   ← "89.90" (text) → 89.9 (număr)
+  "stock": 5,
+  "imageUrl": "https://images.unsplash.com/...",   ← completat de service
+  "isPinned": false,                               ← completat de service
+  "streamId": "b3897c80-bbc2-408c-bc8e-0b588c706eb1",
+  "createdAt": "2026-10-20T11:56:38.608Z"          ← generat de Postgres
+}
+```
+
+Ce s-ar fi întâmplat cu date greșite:
+
+| Dacă trimiteai... | Unde se oprește | Răspuns |
+|---|---|---|
+| fără `price` | pasul 4, `postProduct` | `400` „Lipseste streamId, title sau price" |
+| `{ stricat` | pasul 4, `readJson` | `400` „Body-ul cererii nu este JSON valid" |
+| un `streamId` inexistent | pasul 6, Postgres refuză foreign key-ul | `500` „Eroare internă de server" |
+| `price: "abc"` | **nicăieri**: `Number("abc")` = `NaN`, apoi eroare de la Prisma | `500` |
+
+Ultimele două rânduri sunt problemele pe care le rezolvă **Ziua 2**: cu Zod, datele greșite primesc un `400` clar înainte să ajungă la baza de date.
+
 ---
 
 ### Ziua 2 — Model de date v2 + validare

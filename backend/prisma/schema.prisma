@@ -7,12 +7,23 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum Role {
+  VIEWER
+  STREAMER
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
+  id        String   @id @default(uuid())
+  email     String   @unique
   name      String
-  role      String    @default("VIEWER") // VIEWER sau STREAMER
-  createdAt DateTime  @default(now())
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now())
   streams   Stream[]
   orders    Order[]
 }
@@ -21,35 +32,42 @@ model Stream {
   id          String    @id @default(uuid())
   title       String
   isLive      Boolean   @default(false)
-  playbackUrl String?   // URL-ul .m3u8 pentru player
-  streamKey   String?   // Stream Key pentru OBS
+  playbackUrl String?
   userId      String
   user        User      @relation(fields: [userId], references: [id])
   products    Product[]
   createdAt   DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Product {
   id          String   @id @default(uuid())
   title       String
   description String?
-  price       Float
+  priceCents  Int
   stock       Int      @default(1)
   imageUrl    String?
-  isPinned    Boolean  @default(false) // Produsul promovat activ pe video
+  isPinned    Boolean  @default(false)
   streamId    String
   stream      Stream   @relation(fields: [streamId], references: [id])
   orders      Order[]
   createdAt   DateTime @default(now())
+
+  @@index([streamId])
 }
 
 model Order {
-  id        String   @id @default(uuid())
-  userId    String
-  productId String
-  price     Float
-  status    String   @default("COMPLETED")
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
-  product   Product  @relation(fields: [productId], references: [id])
+  id              String      @id @default(uuid())
+  userId          String
+  productId       String
+  priceCents      Int
+  status          OrderStatus @default(PENDING)
+  stripeSessionId String?     @unique
+  createdAt       DateTime    @default(now())
+  user            User        @relation(fields: [userId], references: [id])
+  product         Product     @relation(fields: [productId], references: [id])
+
+  @@index([userId])
+  @@index([productId])
 }
