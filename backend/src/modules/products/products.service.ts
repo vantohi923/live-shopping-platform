@@ -4,7 +4,7 @@ export interface CreateProductInput {
   streamId: string;
   title: string;
   description?: string;
-  price: number | string;
+  priceCents: number;
   stock?: number;
   imageUrl?: string;
   isPinned?: boolean;
@@ -15,7 +15,7 @@ export function createProduct(input: CreateProductInput) {
     data: {
       title: input.title,
       description: input.description || "",
-      price: Number(input.price),
+      priceCents: input.priceCents,
       stock: input.stock ?? 10,
       imageUrl:
         input.imageUrl ||

@@ -1,3 +1,4 @@
+import { Role } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 
 export function seedDemoUser() {
@@ -7,7 +8,7 @@ export function seedDemoUser() {
     create: {
       email: "streamer@liveshop.local",
       name: "Live Shop Demo User",
-      role: "STREAMER",
+      role: Role.STREAMER,
     },
   });
 }
