@@ -567,6 +567,207 @@ Ultimele două rânduri sunt problemele pe care le rezolvă **Ziua 2**: cu Zod, 
 
 **Gata când:** migrarea e aplicată, seed-ul merge, iar `POST /api/products` cu `priceCents: "abc"` întoarce `400` cu un mesaj clar.
 
+#### ✅ Rezultat Ziua 2: ce am construit și cum se leagă
+
+Ziua 2 a avut trei părți: **modelul de date** (pașii 1–2), **datele demo** (pasul 3) și **validarea + endpoint-urile noi** (pașii 4–5).
+
+```mermaid
+flowchart LR
+    P1["Pasul 1<br/>schema.prisma<br/>(planul)"] --> P2["Pasul 2<br/>migration.sql<br/>(baza de date se schimbă)"]
+    P2 --> P3["Pasul 3<br/>seed.ts<br/>(date demo)"]
+    P3 --> P4["Pasul 4<br/>Zod: parseBody, parseId<br/>(validare la intrare)"]
+    P4 --> P5["Pasul 5<br/>4 endpoint-uri noi<br/>(GET, PIN, PATCH, DELETE)"]
+```
+
+**1. Modelul de date după Ziua 2**
+
+```mermaid
+erDiagram
+    User ||--o{ Stream : "creează"
+    User ||--o{ Order : "plasează"
+    Stream ||--o{ Product : "conține"
+    Product ||--o{ Order : "apare în"
+
+    User {
+        string id PK
+        string email UK
+        string name
+        Role role "VIEWER | STREAMER"
+    }
+    Stream {
+        string id PK
+        string title
+        boolean isLive
+        string playbackUrl
+        string userId FK "index"
+    }
+    Product {
+        string id PK
+        string title
+        int priceCents "29999 = 299,99 lei"
+        int stock
+        boolean isPinned "maxim unul pe live"
+        string streamId FK "index"
+    }
+    Order {
+        string id PK
+        int priceCents "copie a prețului la cumpărare"
+        OrderStatus status "PENDING | PAID | CANCELLED"
+        string stripeSessionId UK
+        string userId FK "index"
+        string productId FK "index"
+    }
+```
+
+Ce s-a schimbat față de Ziua 1:
+
+| Înainte | După | De ce |
+|---|---|---|
+| `role String` | `role Role` (enum) | Baza de date refuză valori greșite |
+| `price Float` | `priceCents Int` | Bani exacți, fără erori de rotunjire |
+| `status String @default("COMPLETED")` | `status OrderStatus @default(PENDING)` | O comandă nouă nu e încă plătită |
+| `streamKey String?` | șters | E un secret; vine de la AWS (Ziua 6) |
+| fără index pe foreign keys | `@@index([userId])`, `([streamId])`, `([productId])` | Căutări rapide |
+| — | `stripeSessionId String? @unique` | Legătura cu plata (Ziua 12) |
+
+**2. Migrarea: convertește, nu șterge**
+
+Prisma voia să șteargă coloanele vechi și să le recreeze goale. Migrarea scrisă de mână le convertește:
+
+```mermaid
+flowchart LR
+    subgraph AUTO["❌ Ce genera Prisma automat"]
+        A1["DROP price"] --> A2["ADD priceCents NOT NULL"] --> A3["eroare / date pierdute"]
+    end
+    subgraph MANUAL["✅ Ce am scris de mână"]
+        M1["ADD priceCents<br/>(permis gol)"] --> M2["UPDATE priceCents =<br/>ROUND(price × 100)"] --> M3["SET NOT NULL"] --> M4["DROP price"]
+    end
+```
+
+| Date | Înainte de migrare | După migrare |
+|---|---|---|
+| Smartwatch Pro V2 | `price = 299.99` | `priceCents = 29999` ✅ |
+| streamer@liveshop.local | `role = 'STREAMER'` (text) | `role = STREAMER` (enum) ✅ |
+
+Verificat cu `prisma migrate diff` → „empty migration": schema și baza de date sunt identice.
+
+**3. Seed-ul: date demo cu o singură comandă**
+
+```mermaid
+flowchart TB
+    CMD["bun run db:seed"] --> DEL["1. Golește tabelele (într-o tranzacție)<br/>Order → Product → Stream → User<br/>(copii înaintea părinților, din cauza foreign keys)"]
+    DEL --> U["2. Creează userii<br/>Ana Streamer (STREAMER)<br/>Mihai Viewer (VIEWER)"]
+    U --> S["3. Creează live-ul cu produsele (nested create)<br/>Lansare Ceasuri Inteligente"]
+    S --> PR["Smartwatch Pro V2 — 299,99 lei, stoc 15 📌<br/>Curea piele maro — 89,90 lei, stoc 30<br/>Încărcător wireless — 129,50 lei, stoc 3"]
+```
+
+ID-urile sunt fixe, deci exemplele de cereri din README merg după fiecare seed. Seed-ul **golește** baza de date: doar pentru dezvoltare.
+
+**4. Drumul unei cereri, cu cele trei „porți" de verificare**
+
+Fiecare cerere trece prin trei verificări. Prima care eșuează oprește cererea cu un cod clar:
+
+```mermaid
+flowchart TB
+    REQ["PATCH /api/products/:id<br/>{ priceCents: 7990 }"] --> G1
+
+    G1{"Poarta 1: parseId<br/>ID-ul din URL e UUID?"}
+    G1 -- nu --> E1["400 ID invalid in URL"]
+    G1 -- da --> G2
+
+    G2{"Poarta 2: parseBody + Zod<br/>body-ul are forma corectă?"}
+    G2 -- nu --> E2["400 Date invalide<br/>+ details: câmpurile greșite"]
+    G2 -- da --> G3
+
+    G3{"Poarta 3: service<br/>produsul există în baza de date?"}
+    G3 -- nu --> E3["404 Produsul nu exista"]
+    G3 -- da --> DB[("PostgreSQL<br/>UPDATE Product")]
+    DB --> OK["200 + produsul modificat"]
+```
+
+- **Zod (porțile 1 și 2)** verifică **forma**: „arată ca un UUID?", „e număr întreg pozitiv?".
+- **Service-ul (poarta 3)** verifică **realitatea**: „există?", „are comenzi?".
+- Doar datele care trec de toate trei ajung la baza de date.
+
+Exemplu de răspuns de la poarta 2, cu toate câmpurile greșite deodată:
+
+```json
+{
+  "error": "Date invalide",
+  "details": [
+    { "field": "streamId", "message": "Invalid UUID" },
+    { "field": "priceCents", "message": "Too small: expected number to be >0" }
+  ]
+}
+```
+
+**5. Fixarea unui produs: de ce e nevoie de tranzacție**
+
+```mermaid
+sequenceDiagram
+    participant C as Streamer
+    participant API as POST /api/streams/:id/pin
+    participant DB as PostgreSQL
+
+    C->>API: { productId: "curea" }
+    API->>DB: produsul e în ACEST live?
+    DB-->>API: da
+    rect rgb(230, 240, 255)
+    Note over API,DB: TRANZACȚIE: ori ambele, ori niciuna
+    API->>DB: 1. isPinned = false pentru toate produsele live-ului
+    API->>DB: 2. isPinned = true pentru curea
+    end
+    DB-->>API: cureaua fixată
+    API-->>C: 200 + produsul fixat
+```
+
+| Produs | Înainte | După |
+|---|---|---|
+| Smartwatch Pro V2 | 📌 `true` | `false` |
+| Curea piele maro | `false` | 📌 `true` |
+| Încărcător wireless | `false` | `false` |
+
+Fără tranzacție, dacă pasul 2 eșua după pasul 1, live-ul rămânea fără niciun produs fixat.
+
+**6. Fișierele modulului `products` după Ziua 2**
+
+```
+modules/products/
+├── products.schema.ts   ← NOU: CreateProductSchema, UpdateProductSchema, PinProductSchema
+│                           tipurile vin din scheme (z.infer), nu sunt scrise de mână
+├── products.routes.ts   ← 5 handler-e: validează URL + body → cheamă service → răspunde
+└── products.service.ts  ← logica: ensureStreamExists, findProductOrThrow,
+                            listProductsForStream, createProduct, updateProduct,
+                            removeProduct (409 dacă are comenzi), pinProduct (tranzacție)
+```
+
+**Endpoint-uri active după Ziua 2:**
+
+| Metodă | URL | Răspunsuri posibile |
+|---|---|---|
+| `GET` | `/health` | `200` |
+| `GET` | `/api/streams` | `200` |
+| `POST` | `/api/streams` | `201` · `400` |
+| `GET` | `/api/streams/:id/products` | `200` · `400` ID invalid · `404` live inexistent |
+| `POST` | `/api/streams/:id/pin` | `200` · `400` · `404` produsul nu e în live |
+| `POST` | `/api/products` | `201` · `400` date invalide · `404` live inexistent |
+| `PATCH` | `/api/products/:id` | `200` · `400` · `404` |
+| `DELETE` | `/api/products/:id` | `204` · `404` · `409` are comenzi |
+
+`POST /api/users/seed` a fost scos: datele demo vin acum din `bun run db:seed`.
+
+**Coduri HTTP folosite:**
+
+| Cod | Înseamnă | Exemplu |
+|---|---|---|
+| `200` | OK | lista de produse, produs modificat |
+| `201` | Creat | produs nou |
+| `204` | Reușit, fără body | produs șters |
+| `400` | Date greșite de la client | `priceCents: "abc"` |
+| `404` | Nu există | live sau produs inexistent |
+| `409` | Conflict cu starea datelor | ștergi un produs care are comenzi |
+| `500` | Bug pe server | n-ar trebui să mai apară pentru date greșite |
+
 ---
 
 ### Ziua 3 — Teste + CI
