@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
+    "db:seed": "bun prisma/seed.ts",
     "typecheck": "bun check",
     "postinstall": "prisma skills sync || exit 0"
   },

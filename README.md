@@ -530,19 +530,21 @@ Ultimele două rânduri sunt problemele pe care le rezolvă **Ziua 2**: cu Zod, 
    }
    ```
 2. `bunx prisma migrate dev --name v2_model` → citesc SQL-ul generat și înțeleg fiecare linie.
-3. `prisma/seed.ts`: un streamer, un viewer, un stream cu 3 produse. Rulez cu `bun prisma/seed.ts` (înlocuiește `POST /api/users/seed`).
+3. `prisma/seed.ts`: un streamer, un viewer, un stream cu 3 produse. Rulez cu `bun run db:seed` (înlocuiește `POST /api/users/seed`). Seed-ul **golește** tabelele și le reumple, deci e doar pentru dezvoltare.
 4. Scheme Zod în `*.schema.ts` pentru fiecare body:
    ```ts
    export const CreateProductSchema = z.object({
-     streamId: z.string().uuid(),
-     title: z.string().min(1).max(120),
-     description: z.string().max(2000).optional(),
+     streamId: z.uuid(),
+     title: z.string().trim().min(1).max(120),
+     description: z.string().trim().max(2000).optional(),
      priceCents: z.number().int().positive(),
      stock: z.number().int().min(0).default(10),
-     imageUrl: z.string().url().optional(),
+     imageUrl: z.url().optional(),
    });
+
+   export type CreateProductInput = z.infer<typeof CreateProductSchema>;
    ```
-   Un helper `parseBody(req, Schema)` aruncă `HttpError(400, ...)` cu mesajele Zod.
+   Un helper `parseBody(req, Schema)` în `lib/http.ts` aruncă `HttpError(400, "Date invalide", details)`, unde `details` e lista câmpurilor greșite: `[{ field: "priceCents", message: "..." }]`.
 5. Endpoint-uri produse:
    - `GET /api/streams/:id/products`;
    - `PATCH /api/products/:id`;
@@ -1098,7 +1100,7 @@ bun install
 bun run dev                     # server cu reload automat (după Ziua 1)
 bunx prisma migrate dev --name <nume>   # migrare nouă după ce modific schema
 bunx prisma studio              # interfață vizuală pentru DB
-bun prisma/seed.ts              # date demo (după Ziua 2)
+bun run db:seed                 # date demo: golește tabelele și le reumple (după Ziua 2)
 bun test                        # teste
 bun run typecheck
 

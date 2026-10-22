@@ -1,4 +1,5 @@
-import { json } from "../../lib/http";
+import { json, parseBody } from "../../lib/http";
+import { CreateStreamSchema } from "./streams.schema";
 import { createStream, listStreams } from "./streams.service";
 
 export async function getStreams() {
@@ -7,7 +8,7 @@ export async function getStreams() {
 }
 
 export async function postStream(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { title?: string };
-  const stream = await createStream(body.title);
+  const body = await parseBody(req, CreateStreamSchema);
+  const stream = await createStream(body);
   return json(stream, 201);
 }
