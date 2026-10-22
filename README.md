@@ -712,7 +712,7 @@ sequenceDiagram
     C->>API: { productId: "curea" }
     API->>DB: produsul e în ACEST live?
     DB-->>API: da
-    rect rgb(230, 240, 255)
+    rect rgba(100, 150, 255, 0.15)
     Note over API,DB: TRANZACȚIE: ori ambele, ori niciuna
     API->>DB: 1. isPinned = false pentru toate produsele live-ului
     API->>DB: 2. isPinned = true pentru curea
@@ -776,6 +776,8 @@ modules/products/
 
 **Pași:**
 1. O bază separată pentru teste: `liveshop_test` (`DATABASE_URL` diferit în `.env.test`).
+   - `bun run db:test:setup` creează baza (dacă nu există) și aplică toate migrările pe ea.
+   - `bun test` setează automat `NODE_ENV=test` și citește `.env.test` peste `.env`, deci testele folosesc `liveshop_test`; `bun run dev` folosește în continuare `liveshop`.
 2. Teste de integrare cu `bun test` în `tests/`:
    - service-urile direct (ex. `createProduct`, `pinProduct`);
    - câteva endpoint-uri prin HTTP (`fetch` către serverul pornit pe alt port).
