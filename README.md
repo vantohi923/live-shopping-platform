@@ -781,6 +781,16 @@ modules/products/
 2. Teste de integrare cu `bun test` în `tests/`:
    - service-urile direct (ex. `createProduct`, `pinProduct`);
    - câteva endpoint-uri prin HTTP (`fetch` către serverul pornit pe alt port).
+
+   Rulez cu `bun run test`. Structura:
+   ```
+   bunfig.toml                     ← spune lui bun test să încarce tests/setup.ts înainte de toate
+   tests/
+   ├── setup.ts                    ← plasa de siguranță: refuză orice bază care nu se termină în _test
+   ├── helpers.ts                  ← createFixture(): un streamer, un viewer, un live cu 3 produse, unice per test
+   ├── products.service.test.ts    ← 13 teste care cheamă service-urile direct
+   └── api.test.ts                 ← 11 teste care trimit cereri HTTP reale la un server pe port aleator
+   ```
 3. Înainte de fiecare test golesc tabelele (`deleteMany` în ordinea corectă a foreign key-urilor).
 4. `.github/workflows/ci.yml`:
    ```yaml

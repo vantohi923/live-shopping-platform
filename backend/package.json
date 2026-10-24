@@ -14,6 +14,7 @@
     "start": "bun src/index.ts",
     "db:seed": "bun prisma/seed.ts",
     "db:test:setup": "bun --env-file=.env.test run prisma migrate deploy",
+    "test": "bun test",
     "typecheck": "bun check",
     "postinstall": "prisma skills sync || exit 0"
   },
