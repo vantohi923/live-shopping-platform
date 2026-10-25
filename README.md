@@ -792,6 +792,9 @@ modules/products/
    └── api.test.ts                 ← 11 teste care trimit cereri HTTP reale la un server pe port aleator
    ```
 3. Înainte de fiecare test golesc tabelele (`deleteMany` în ordinea corectă a foreign key-urilor).
+   - `resetDatabase()` în `tests/helpers.ts`: șterge Order → Product → Stream → User, într-o tranzacție.
+   - `beforeEach(resetDatabase)` în `tests/setup.ts`: fiind în fișierul încărcat prin `preload`, se aplică tuturor testelor din toate fișierele.
+   - `tests/reset.test.ts` dovedește că merge: primul test lasă date, al doilea găsește baza goală.
 4. `.github/workflows/ci.yml`:
    ```yaml
    name: CI

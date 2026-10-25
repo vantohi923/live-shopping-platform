@@ -1,6 +1,15 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 
+export async function resetDatabase() {
+  await prisma.$transaction([
+    prisma.order.deleteMany(),
+    prisma.product.deleteMany(),
+    prisma.stream.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
+}
+
 export async function createFixture() {
   const tag = crypto.randomUUID().slice(0, 8);
 
