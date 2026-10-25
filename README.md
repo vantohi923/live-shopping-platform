@@ -826,6 +826,154 @@ modules/products/
 
 **Gata când:** `bun test` trece local, iar CI e verde pe GitHub.
 
+#### ✅ Rezultat Ziua 3: plasa de siguranță a proiectului
+
+Ziua 3 nu a adăugat funcționalități noi în aplicație. A adăugat ceva care **verifică automat** tot ce am construit în Zilele 1–2 și tot ce vom construi de acum încolo.
+
+```mermaid
+flowchart LR
+    P1["Pasul 1<br/>bază separată<br/>liveshop_test"] --> P2["Pasul 2<br/>24 de teste<br/>service + HTTP"]
+    P2 --> P3["Pasul 3<br/>golire înainte<br/>de fiecare test"]
+    P3 --> P4["Pasul 4<br/>workflow CI<br/>ci.yml"]
+    P4 --> P5["Pasul 5<br/>push → CI verde<br/>pe GitHub"]
+```
+
+**Pasul 1: două baze de date în același Postgres**
+
+```mermaid
+flowchart TB
+    subgraph DOCKER["Docker: containerul liveshop-postgres (localhost:5432)"]
+        DEV[("liveshop<br/>datele tale de lucru<br/>Ana, Mihai, ceasul, cureaua...")]
+        TEST[("liveshop_test<br/>datele testelor<br/>golită înainte de fiecare test")]
+    end
+
+    RUN["bun run dev"] -->|".env"| DEV
+    SEED["bun run db:seed"] -->|".env"| DEV
+    STUDIO["bunx prisma studio"] -->|".env"| DEV
+
+    T["bun run test<br/>(NODE_ENV=test)"] -->|".env.test câștigă"| TEST
+    SETUP["bun run db:test:setup"] -->|"--env-file=.env.test"| TEST
+```
+
+Testele pot șterge orice în `liveshop_test`; baza ta de lucru `liveshop` rămâne neatinsă. După fiecare migrare nouă, rulezi `bun run db:test:setup`, ca baza de test să aibă aceeași structură.
+
+**Pasul 2: cum se leagă testele de codul proiectului**
+
+```mermaid
+flowchart TB
+    CMD["bun run test"] --> CFG["bunfig.toml<br/>preload = tests/setup.ts"]
+    CFG --> SETUP["tests/setup.ts<br/>1. plasa de siguranță (*_test)<br/>2. beforeEach: golește baza<br/>3. afterAll: închide conexiunea"]
+
+    SETUP --> SVC["tests/products.service.test.ts<br/>13 teste"]
+    SETUP --> API["tests/api.test.ts<br/>11 teste"]
+    SETUP --> RST["tests/reset.test.ts<br/>2 teste"]
+
+    SVC -->|"cheamă direct"| PS["src/modules/products/<br/>products.service.ts"]
+    API -->|"Bun.serve pe port aleator<br/>+ fetch"| ROUTES["src/routes.ts"]
+    ROUTES --> HANDLE["lib/http.ts: handle(), CORS,<br/>parseBody, parseId (Zod)"]
+    HANDLE --> PR["products.routes.ts"] --> PS
+
+    SVC & API & RST -.->|"createFixture()"| HELP["tests/helpers.ts"]
+    PS --> PRISMA["lib/prisma.ts"] --> DB[("liveshop_test")]
+    HELP --> PRISMA
+```
+
+Cele două fișiere principale testează lucruri diferite:
+
+| Fișier | Testează | Exemplu |
+|---|---|---|
+| `products.service.test.ts` | **Logica**: regulile din service, fără HTTP | „după `pinProduct` există exact un produs fixat" |
+| `api.test.ts` | **Tot drumul**: rutare, `handle()`, CORS, Zod, coduri de status, JSON | „`POST /api/products` cu `priceCents: "abc"` dă `400` cu `details`" |
+
+Ce acoperă testele, pe fișierele proiectului:
+
+| Fișier din proiect | Acoperit de |
+|---|---|
+| `src/routes.ts` + `fallback` | `api.test.ts`: `/health`, `OPTIONS` → `204`, URL necunoscut → `404` |
+| `src/lib/http.ts` | `api.test.ts`: CORS, JSON stricat → `400`, `details` de la Zod, ID invalid → `400` |
+| `products.schema.ts` | `api.test.ts`: titlu tăiat de spații, preț în lei refuzat, `PATCH {}` refuzat |
+| `products.service.ts` | `products.service.test.ts`: create, list, update, remove (`409`), pin (tranzacție, concurență) |
+| `streams.*` | încă neacoperit; testele vin când modulul crește (Zilele 4 și 6) |
+
+**Pasul 3: ce se întâmplă la fiecare test**
+
+```mermaid
+sequenceDiagram
+    participant B as bun test
+    participant S as tests/setup.ts
+    participant T as un test
+    participant DB as liveshop_test
+
+    B->>S: încarcă setup.ts (preload)
+    S->>S: DATABASE_URL se termină în _test? altfel STOP
+    loop pentru fiecare test, din fiecare fișier
+        S->>DB: beforeEach: resetDatabase()<br/>Order → Product → Stream → User
+        T->>DB: 1. pregătește: createFixture()
+        T->>DB: 2. fă acțiunea (ex. pinProduct)
+        T->>DB: 3. verifică: expect(...)
+    end
+    S->>DB: afterAll: $disconnect()
+```
+
+Dovezile că plasa funcționează:
+
+| Experiment | Rezultat |
+|---|---|
+| Am **stricat intenționat** `pinProduct` | 3 teste au picat imediat: „Expected length: 1, Received length: 2" |
+| Am **dezactivat golirea** | `reset.test.ts` a picat: „users: 2" în loc de `0` |
+| Am rulat testele cu `DATABASE_URL` spre `liveshop` | „❌ Testele ruleaza doar pe o baza *_test", nimic șters |
+| Înainte de pasul 3 | `liveshop_test` adunase 144 useri, 72 live-uri, 216 produse; după: 0 |
+
+**Pașii 4 și 5: CI pe GitHub, rulat la fiecare push**
+
+```mermaid
+flowchart TB
+    PUSH["git push pe main"] --> GH["GitHub citește<br/>.github/workflows/ci.yml"]
+
+    GH --> BE
+    GH --> FE
+
+    subgraph BE["Job backend (calculator Ubuntu curat)"]
+        direction TB
+        PG[("Postgres ca service<br/>baza liveshop_test")]
+        B1["install --frozen-lockfile"] --> B2["prisma generate"] --> B3["migrate deploy"] --> B4["typecheck"] --> B5["26 de teste"]
+        B3 -.-> PG
+        B5 -.-> PG
+    end
+
+    subgraph FE["Job frontend (alt calculator, în paralel)"]
+        direction TB
+        F1["install --frozen-lockfile"] --> F2["ESLint"] --> F3["next build"]
+    end
+
+    B5 --> RES{"ambele job-uri verzi?"}
+    F3 --> RES
+    RES -- da --> OK["✅ bifă verde lângă commit"]
+    RES -- nu --> KO["❌ X roșu + email de la GitHub"]
+```
+
+Prima rulare reală (commit `2a565f0`): **ambele job-uri verzi**, toți pașii trecuți, de la pornirea Postgres până la oprirea lui.
+
+**Cum se schimbă felul în care lucrez, de acum**
+
+```mermaid
+flowchart LR
+    CODE["scriu cod<br/>(ex. Ziua 4: auth)"] --> TESTW["scriu testele<br/>pentru el"]
+    TESTW --> LOCAL["bun run test<br/>local, ~1 secundă"]
+    LOCAL -->|"pică"| CODE
+    LOCAL -->|"trece"| COMMIT["commit + push"]
+    COMMIT --> CI["CI pe GitHub"]
+    CI -->|"❌ roșu"| CODE
+    CI -->|"✅ verde"| NEXT["pasul următor"]
+```
+
+| Înainte de Ziua 3 | După Ziua 3 |
+|---|---|
+| Verificam de mână cu `curl`, după fiecare modificare | `bun run test` verifică 26 de cazuri într-o secundă |
+| O modificare putea strica în tăcere ceva vechi | Testele vechi pică imediat și spun ce s-a stricat |
+| „La mine merge" | CI confirmă pe un calculator curat, de la zero |
+| Nimic nu verifica frontend-ul | Fiecare push trece prin ESLint și `next build` |
+
 ---
 
 ### Ziua 4 — Autentificare cu Cognito (backend)
