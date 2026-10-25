@@ -795,39 +795,22 @@ modules/products/
    - `resetDatabase()` în `tests/helpers.ts`: șterge Order → Product → Stream → User, într-o tranzacție.
    - `beforeEach(resetDatabase)` în `tests/setup.ts`: fiind în fișierul încărcat prin `preload`, se aplică tuturor testelor din toate fișierele.
    - `tests/reset.test.ts` dovedește că merge: primul test lasă date, al doilea găsește baza goală.
-4. `.github/workflows/ci.yml`:
-   ```yaml
-   name: CI
-   on: [push, pull_request]
-   jobs:
-     backend:
-       runs-on: ubuntu-latest
-       services:
-         postgres:
-           image: postgres:16-alpine
-           env: { POSTGRES_USER: user, POSTGRES_PASSWORD: password, POSTGRES_DB: liveshop_test }
-           ports: ["5432:5432"]
-           options: --health-cmd pg_isready --health-interval 5s --health-retries 10
-       defaults: { run: { working-directory: backend } }
-       env:
-         DATABASE_URL: postgresql://user:password@localhost:5432/liveshop_test
-       steps:
-         - uses: actions/checkout@v4
-         - uses: oven-sh/setup-bun@v2
-         - run: bun install --frozen-lockfile
-         - run: bunx prisma migrate deploy
-         - run: bun run typecheck
-         - run: bun test
-     frontend:
-       runs-on: ubuntu-latest
-       defaults: { run: { working-directory: frontend } }
-       steps:
-         - uses: actions/checkout@v4
-         - uses: oven-sh/setup-bun@v2
-         - run: bun install --frozen-lockfile
-         - run: bun run lint
-         - run: bun run build
+4. `.github/workflows/ci.yml`: două job-uri care rulează în paralel la fiecare push pe `main` și la fiecare pull request.
+   ```mermaid
+   flowchart LR
+       PUSH["git push"] --> GH["GitHub Actions"]
+       GH --> BE["Job backend<br/>Postgres de test pornit ca service"]
+       GH --> FE["Job frontend"]
+       BE --> B1["bun install --frozen-lockfile"] --> B2["prisma generate"] --> B3["prisma migrate deploy"] --> B4["bun run typecheck"] --> B5["bun run test"]
+       FE --> F1["bun install --frozen-lockfile"] --> F2["bun run lint"] --> F3["bun run build"]
+       B5 --> R{"toate verzi?"}
+       F3 --> R
+       R -- da --> OK["✅ bifă verde lângă commit"]
+       R -- nu --> KO["❌ X roșu + email"]
    ```
+   - Postgres pornește ca **service container**, cu baza `liveshop_test`, iar `DATABASE_URL` vine din workflow, nu din `.env.test`.
+   - `bun-version: 1.4.3`: CI folosește exact versiunea de Bun de pe calculatorul meu.
+   - `prisma generate` e rulat explicit, ca Prisma Client să existe chiar dacă Bun nu rulează scripturile de instalare ale pachetelor.
 5. Push → pe GitHub, tab-ul **Actions** e verde.
 
 **Ce trebuie să înțeleg:**

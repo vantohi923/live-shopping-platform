@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (typecheck + teste)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: liveshop_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/liveshop_test?schema=public
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Instalez dependentele
+        run: bun install --frozen-lockfile
+
+      - name: Generez Prisma Client
+        run: bunx prisma generate
+
+      - name: Aplic migrarile pe baza de test
+        run: bunx prisma migrate deploy
+
+      - name: Verific TypeScript
+        run: bun run typecheck
+
+      - name: Rulez testele
+        run: bun run test
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Instalez dependentele
+        run: bun install --frozen-lockfile
+
+      - name: Verific codul cu ESLint
+        run: bun run lint
+
+      - name: Construiesc aplicatia
+        run: bun run build
