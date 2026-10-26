@@ -857,6 +857,37 @@ flowchart TB
 
 Testele pot șterge orice în `liveshop_test`; baza ta de lucru `liveshop` rămâne neatinsă. După fiecare migrare nouă, rulezi `bun run db:test:setup`, ca baza de test să aibă aceeași structură.
 
+Un singur server Postgres poate ține mai multe baze separate, ca un dulap cu mai multe sertare. Ambele baze au aceleași tabele (User, Stream, Product, Order), dar datele lor nu se amestecă. Fișierul de configurare decide în ce sertar lucrează fiecare comandă, iar singura diferență dintre ele e numele bazei de la final:
+
+| Fișier | `DATABASE_URL` | Folosit de |
+|---|---|---|
+| [`backend/.env`](backend/.env) | `...localhost:5432/liveshop` | `bun run dev`, `bun run db:seed`, `bunx prisma studio` |
+| [`backend/.env.test`](backend/.env.test) | `...localhost:5432/liveshop_test` | `bun run test`, `bun run db:test:setup` |
+
+Ambele fișiere sunt ignorate de git, deci nu apar pe GitHub. Pe un calculator nou le creezi din nou, cu liniile de mai sus.
+
+Cum alege fiecare comandă baza:
+- `bun test` setează singur `NODE_ENV=test` și citește **și** `.env`, **și** `.env.test`. Unde au aceeași variabilă, câștigă `.env.test`.
+- `db:test:setup` primește explicit `--env-file=.env.test`.
+- Restul comenzilor citesc doar `.env`.
+
+Ce s-a întâmplat concret la pasul 1:
+
+1. Am creat `backend/.env.test`, cu adresa spre `liveshop_test`.
+2. Am adăugat scriptul `"db:test:setup": "bun --env-file=.env.test run prisma migrate deploy"` în `backend/package.json`.
+3. Am rulat `bun run db:test:setup`: a **creat** baza `liveshop_test` (nu exista) și a **aplicat** cele două migrări, deci a creat în ea aceleași tabele ca în `liveshop`.
+4. Am verificat că `bun test` vede `liveshop_test`, iar `bun run dev` vede în continuare `liveshop`.
+
+De ce trebuie rulat `db:test:setup` după fiecare migrare: o migrare se aplică întâi pe `liveshop`, iar baza de test **nu se actualizează singură**. Dacă uiți, testele caută o coloană nouă care nu există în `liveshop_test` și pică. În CI nu ai grija asta, pentru că acolo baza se creează de la zero la fiecare rulare.
+
+Cum vezi fiecare bază în Prisma Studio (http://localhost:5555, una singură odată; o oprești cu `Ctrl+C`):
+
+```bash
+cd backend
+bunx prisma studio                              # liveshop: Ana, Mihai, produsele demo
+bun --env-file=.env.test run prisma studio      # liveshop_test: de obicei goală
+```
+
 **Pasul 2: cum se leagă testele de codul proiectului**
 
 ```mermaid
