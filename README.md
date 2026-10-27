@@ -926,6 +926,37 @@ Ce acoperă testele, pe fișierele proiectului:
 | `products.service.ts` | `products.service.test.ts`: create, list, update, remove (`409`), pin (tranzacție, concurență) |
 | `streams.*` | încă neacoperit; testele vin când modulul crește (Zilele 4 și 6) |
 
+Anatomia unui test, pe un exemplu real din [`backend/tests/products.service.test.ts`](backend/tests/products.service.test.ts):
+
+```ts
+test("da 409 daca produsul are comenzi si nu il sterge", async () => {
+  const { strap, viewer } = await createFixture();
+  await prisma.order.create({ data: { userId: viewer.id, productId: strap.id, priceCents: strap.priceCents } });
+
+  await expect(removeProduct(strap.id)).rejects.toMatchObject({ status: 409 });
+  expect(await prisma.product.findUnique({ where: { id: strap.id } })).not.toBeNull();
+});
+```
+
+Orice test are aceleași trei părți (în engleză se numesc *Arrange, Act, Assert*):
+
+| Parte | În exemplu | Ce înseamnă |
+|---|---|---|
+| **Pregătesc** | `createFixture()` + o comandă pe curea | Construiesc situația: un streamer, un viewer, un live cu 3 produse, iar cureaua are deja o comandă |
+| **Fac acțiunea** | `removeProduct(strap.id)` | Chem exact funcția pe care o testez |
+| **Verific** | `rejects.toMatchObject({ status: 409 })` + produsul încă există | Spun ce **trebuie** să se întâmple. Dacă realitatea diferă, testul pică |
+
+Câteva lucruri utile:
+- `createFixture()` din [`backend/tests/helpers.ts`](backend/tests/helpers.ts) creează mereu aceleași date, ca fiecare test să nu le scrie de mână. E-mailurile primesc un sufix aleator (`streamer-a1b2c3d4@test.local`), ca să nu se ciocnească de câmpul `@unique`.
+- Un test verifică **un singur comportament**, iar numele lui îl spune în cuvinte. Când pică, numele îți spune direct ce s-a stricat.
+- Rulezi un singur fișier sau un singur test așa:
+
+```bash
+cd backend
+bun test tests/api.test.ts             # doar testele HTTP
+bun test -t "409"                      # doar testele care au „409" în nume
+```
+
 **Pasul 3: ce se întâmplă la fiecare test**
 
 ```mermaid
@@ -954,6 +985,17 @@ Dovezile că plasa funcționează:
 | Am **dezactivat golirea** | `reset.test.ts` a picat: „users: 2" în loc de `0` |
 | Am rulat testele cu `DATABASE_URL` spre `liveshop` | „❌ Testele ruleaza doar pe o baza *_test", nimic șters |
 | Înainte de pasul 3 | `liveshop_test` adunase 144 useri, 72 live-uri, 216 produse; după: 0 |
+
+De ce e construită golirea exact așa, în [`backend/tests/helpers.ts`](backend/tests/helpers.ts):
+
+| Alegere | Motiv |
+|---|---|
+| Ordinea **Order → Product → Stream → User** | Copiii se șterg înaintea părinților. O comandă arată spre un produs, deci nu pot șterge produsul cât timp comanda există (cheia străină blochează). |
+| Totul într-un `$transaction` | Ori se șterg toate patru tabelele, ori niciuna. Nu rămâne o bază pe jumătate goală. |
+| `beforeEach`, nu `afterEach` | Dacă un test se oprește brusc la mijloc, următorul tot pornește de la zero. Și dacă te uiți în Prisma Studio după ce au rulat testele, vezi datele ultimului test, util la depanare. |
+| Plasa `*_test` în [`backend/tests/setup.ts`](backend/tests/setup.ts) | Golirea șterge tot. Dacă din greșeală `DATABASE_URL` arată spre `liveshop`, testele se opresc **înainte** să atingă ceva. |
+
+Regula pe care o păstrez de acum: un test **nu se bazează niciodată** pe datele lăsate de alt test. Fiecare își face singur datele cu `createFixture()`. Așa testele pot rula în orice ordine și dau mereu același rezultat.
 
 **Pașii 4 și 5: CI pe GitHub, rulat la fiecare push**
 
@@ -984,6 +1026,33 @@ flowchart TB
 ```
 
 Prima rulare reală (commit `2a565f0`): **ambele job-uri verzi**, toți pașii trecuți, de la pornirea Postgres până la oprirea lui.
+
+Cum citesc [`.github/workflows/ci.yml`](.github/workflows/ci.yml), bucată cu bucată:
+
+| Bucată din fișier | Ce face |
+|---|---|
+| `on: push: branches: [main]` + `pull_request` | **Când** pornește: la fiecare push pe `main` și la fiecare Pull Request |
+| `runs-on: ubuntu-latest` | GitHub îmi dă un calculator Linux nou, gol, pe care îl aruncă la final |
+| `services: postgres:` | Pornește un Postgres 16 lângă job, cu baza `liveshop_test` deja creată. Joacă rolul Docker-ului meu local |
+| `--health-cmd "pg_isready"` | Așteaptă până Postgres chiar acceptă conexiuni, abia apoi pornesc pașii |
+| `env: DATABASE_URL` | Ține locul fișierului `.env.test`, care nu e pe GitHub (e ignorat de git) |
+| `working-directory: backend` | Toate comenzile rulează în folderul `backend/`, ca și cum aș fi dat `cd backend` |
+| `bun-version: 1.4.3` | Aceeași versiune de Bun ca la mine, ca să nu apară diferențe |
+| `bun install --frozen-lockfile` | Instalează **exact** versiunile din `bun.lock`. Dacă lockfile-ul nu se potrivește cu `package.json`, pică intenționat |
+| `prisma generate` → `migrate deploy` | Construiește clientul Prisma și creează tabelele în baza goală, din folderul `migrations/` |
+| `typecheck` → `test` | Verifică tipurile TypeScript, apoi rulează cele 26 de teste |
+
+Unde văd rezultatul: pe GitHub, în tab-ul **Actions** al repo-ului, sau la iconița de lângă fiecare commit: ✅ verde, ❌ roșu, 🟡 rulează încă.
+
+Ce fac când CI e roșu:
+1. Intru în Actions → rularea roșie → job-ul roșu → pasul roșu. Citesc ultimele rânduri ale log-ului.
+2. Rulez **aceeași comandă** local (`bun run typecheck` sau `bun run test`) și repar.
+3. Dau un commit nou cu reparația. Nu șterg commit-ul vechi; CI rulează din nou singur.
+
+Cauze tipice pentru „la mine merge, în CI nu":
+- am uitat să dau commit unei migrări (folderul din `prisma/migrations/`), deci în CI tabela nu există;
+- am instalat un pachet, dar n-am dat commit la `bun.lock`;
+- un test se baza pe date din baza mea locală, care în CI e goală.
 
 **Cum se schimbă felul în care lucrez, de acum**
 
