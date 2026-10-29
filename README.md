@@ -1074,6 +1074,19 @@ flowchart LR
 | „La mine merge" | CI confirmă pe un calculator curat, de la zero |
 | Nimic nu verifica frontend-ul | Fiecare push trece prin ESLint și `next build` |
 
+**Cum povestesc Ziua 3 la interviu (30 de secunde)**
+
+> „Am scris 26 de teste de integrare cu `bun test`, care rulează pe o bază Postgres separată, `liveshop_test`. Baza se golește înainte de fiecare test, deci testele nu depind unele de altele. Am pus și o plasă de siguranță: dacă `DATABASE_URL` nu se termină în `_test`, testele refuză să pornească. Pe GitHub Actions am un workflow care, la fiecare push, pornește un Postgres curat, aplică migrările, verifică tipurile și rulează testele, iar în paralel face lint și build pentru frontend."
+
+Întrebări care pot urma și răspunsul scurt:
+
+| Întrebare | Răspuns |
+|---|---|
+| De ce teste pe o bază reală și nu cu mock-uri? | Logica mea depinde de baza de date: tranzacția de la pin, `@unique`, cheile străine care blochează ștergerea. Un mock n-ar prinde greșelile astea. |
+| Cât durează testele? | Local, în jur de o secundă. În CI, câteva minute, mai ales pentru instalare. |
+| Ce s-ar întâmpla dacă CI ar fi roșu? | Nu trec la pasul următor. Citesc log-ul, reproduc local cu aceeași comandă și repar într-un commit nou. |
+| Ce ai adăuga mai departe? | Teste pentru modulul `streams` și pentru autentificare (Ziua 4), plus testele de frontend când apar paginile. |
+
 ---
 
 ### Ziua 4 — Autentificare cu Cognito (backend)
