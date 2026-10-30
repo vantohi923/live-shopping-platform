@@ -1087,6 +1087,98 @@ flowchart LR
 | Ce s-ar întâmpla dacă CI ar fi roșu? | Nu trec la pasul următor. Citesc log-ul, reproduc local cu aceeași comandă și repar într-un commit nou. |
 | Ce ai adăuga mai departe? | Teste pentru modulul `streams` și pentru autentificare (Ziua 4), plus testele de frontend când apar paginile. |
 
+**Întrebări de verificare pentru Ziua 3** (încearcă să răspunzi singur, apoi deschide răspunsul)
+
+<details>
+<summary>1. De ce rulează testele pe <code>liveshop_test</code> și nu pe <code>liveshop</code>?</summary>
+
+Testele golesc baza înainte de fiecare test. Pe `liveshop` mi-ar șterge datele de lucru (Ana, Mihai, produsele demo). `bun test` setează `NODE_ENV=test`, deci citește `.env.test`, care arată spre `liveshop_test`.
+</details>
+
+<details>
+<summary>2. Ce se întâmplă dacă <code>DATABASE_URL</code> arată din greșeală spre <code>liveshop</code>?</summary>
+
+Plasa din `tests/setup.ts` verifică dacă numele bazei se termină în `_test`. Nu se termină, deci afișează „❌ Testele ruleaza doar pe o baza *_test” și oprește totul cu `process.exit(1)`, înainte să se șteargă ceva.
+</details>
+
+<details>
+<summary>3. Cum ajunge <code>setup.ts</code> să ruleze înaintea testelor, deși niciun test nu îl importă?</summary>
+
+Prin `backend/bunfig.toml`: `[test] preload = ["./tests/setup.ts"]`. Bun îl încarcă automat înaintea oricărui fișier de test.
+</details>
+
+<details>
+<summary>4. De ce ordinea din <code>resetDatabase()</code> e Order → Product → Stream → User?</summary>
+
+Din cauza cheilor străine: o comandă arată spre un produs și un user, un produs arată spre un live, un live arată spre un user. Copiii se șterg înaintea părinților, altfel Postgres refuză ștergerea.
+</details>
+
+<details>
+<summary>5. De ce e golirea într-un <code>$transaction</code>?</summary>
+
+Ori se golesc toate cele patru tabele, ori niciuna. Dacă o ștergere eșuează, nu rămâne o bază pe jumătate goală.
+</details>
+
+<details>
+<summary>6. Care sunt cele trei părți ale unui test? Dă un exemplu.</summary>
+
+Pregătesc → fac acțiunea → verific. În testul de pin: `createFixture()` (ceasul e fixat) → `pinProduct(stream.id, strap.id)` → `pinnedIn(...)` are lungimea 1 și e cureaua.
+</details>
+
+<details>
+<summary>7. De ce testul de pin pornește cu ceasul deja fixat?</summary>
+
+Ca să verifice și **dezfixarea**. Dacă nimic n-ar fi fost fixat la început, o funcție stricată, care doar fixează fără să dezfixeze, ar fi trecut testul.
+</details>
+
+<details>
+<summary>8. Care e diferența dintre <code>products.service.test.ts</code> și <code>api.test.ts</code>?</summary>
+
+`products.service.test.ts` cheamă direct funcțiile din service și verifică **logica**. `api.test.ts` pornește serverul pe un port liber și trimite cereri HTTP reale, deci verifică **tot drumul**: rutare, `handle()`, CORS, validarea Zod, codurile de status și JSON-ul.
+</details>
+
+<details>
+<summary>9. De ce serverul din <code>api.test.ts</code> pornește pe <code>port: 0</code>?</summary>
+
+`0` îi cere sistemului de operare un port liber oarecare. Astfel testele nu se ciocnesc cu `bun run dev`, care ocupă deja portul 4000.
+</details>
+
+<details>
+<summary>10. Ce face <code>createFixture()</code> și de ce e-mailurile au un sufix aleator?</summary>
+
+Creează aceleași date de pornire pentru orice test: un streamer, un viewer și un live cu 3 produse. Sufixul aleator (`streamer-a1b2c3d4@test.local`) evită ciocnirea cu `@unique` când un test cheamă `createFixture()` de două ori.
+</details>
+
+<details>
+<summary>11. Ce fișier am adăugat pentru CI și de ce tocmai acolo?</summary>
+
+`.github/workflows/ci.yml`. GitHub rulează automat orice fișier `.yml` din `.github/workflows/`; în alt folder ar fi ignorat.
+</details>
+
+<details>
+<summary>12. De unde ia CI-ul baza de date, dacă pe GitHub nu există Docker-ul meu și nici <code>.env.test</code>?</summary>
+
+Din `services: postgres:`, care pornește un Postgres 16 temporar lângă job, cu baza `liveshop_test`. `DATABASE_URL` e scris direct în `ci.yml`, la `env:`. Iar `prisma migrate deploy` creează tabelele în baza goală.
+</details>
+
+<details>
+<summary>13. Ce face <code>--frozen-lockfile</code>?</summary>
+
+Instalează exact versiunile din `bun.lock`. Dacă `bun.lock` nu se potrivește cu `package.json`, comanda pică, deci în CI nu se instalează pe ascuns alte versiuni decât la mine.
+</details>
+
+<details>
+<summary>14. Ai CI sau CI/CD? Care e diferența?</summary>
+
+Am doar **CI**: verificare automată la fiecare push. **CD** ar însemna publicarea automată pe un server după CI verde. Nu o am încă.
+</details>
+
+<details>
+<summary>15. CI e roșu, dar local testele trec. Ce verifici?</summary>
+
+Citesc log-ul pasului roșu din tab-ul Actions. Cauze tipice: o migrare fără commit, `bun.lock` fără commit, sau un test care se baza pe date din baza mea locală.
+</details>
+
 ---
 
 ### Ziua 4 — Autentificare cu Cognito (backend)
