@@ -14,10 +14,10 @@ export async function createFixture() {
   const tag = crypto.randomUUID().slice(0, 8);
 
   const streamer = await prisma.user.create({
-    data: { email: `streamer-${tag}@test.local`, name: "Streamer Test", role: Role.STREAMER },
+    data: { email: `streamer-${tag}@test.local`, name: "Streamer Test", role: Role.STREAMER, cognitoSub: `streamer-${tag}` },
   });
   const viewer = await prisma.user.create({
-    data: { email: `viewer-${tag}@test.local`, name: "Viewer Test", role: Role.VIEWER },
+    data: { email: `viewer-${tag}@test.local`, name: "Viewer Test", role: Role.VIEWER, cognitoSub: `viewer-${tag}` },
   });
 
   const stream = await prisma.stream.create({

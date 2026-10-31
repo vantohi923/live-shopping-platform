@@ -11,13 +11,26 @@ async function ensureStreamExists(streamId: string) {
   }
 }
 
-async function findProductOrThrow(id: string) {
+async function ensureStreamOwnedBy(streamId: string, userId: string) {
+  const stream = await prisma.stream.findUnique({ where: { id: streamId } });
+  if (!stream) {
+    throw new HttpError(404, "Stream-ul nu exista");
+  }
+  if (stream.userId !== userId) {
+    throw new HttpError(403, "Stream-ul nu este al tau");
+  }
+}
+
+async function findOwnedProduct(id: string, userId: string) {
   const product = await prisma.product.findUnique({
     where: { id },
-    include: { _count: { select: { orders: true } } },
+    include: { stream: { select: { userId: true } }, _count: { select: { orders: true } } },
   });
   if (!product) {
     throw new HttpError(404, "Produsul nu exista");
+  }
+  if (product.stream.userId !== userId) {
+    throw new HttpError(403, "Produsul nu este al tau");
   }
   return product;
 }
@@ -30,8 +43,8 @@ export async function listProductsForStream(streamId: string) {
   });
 }
 
-export async function createProduct(input: CreateProductInput) {
-  await ensureStreamExists(input.streamId);
+export async function createProduct(userId: string, input: CreateProductInput) {
+  await ensureStreamOwnedBy(input.streamId, userId);
   return prisma.product.create({
     data: {
       ...input,
@@ -40,21 +53,21 @@ export async function createProduct(input: CreateProductInput) {
   });
 }
 
-export async function updateProduct(id: string, input: UpdateProductInput) {
-  await findProductOrThrow(id);
+export async function updateProduct(userId: string, id: string, input: UpdateProductInput) {
+  await findOwnedProduct(id, userId);
   return prisma.product.update({ where: { id }, data: input });
 }
 
-export async function removeProduct(id: string) {
-  const product = await findProductOrThrow(id);
+export async function removeProduct(userId: string, id: string) {
+  const product = await findOwnedProduct(id, userId);
   if (product._count.orders > 0) {
     throw new HttpError(409, "Produsul are comenzi si nu poate fi sters");
   }
   await prisma.product.delete({ where: { id } });
 }
 
-export async function pinProduct(streamId: string, productId: string) {
-  await ensureStreamExists(streamId);
+export async function pinProduct(userId: string, streamId: string, productId: string) {
+  await ensureStreamOwnedBy(streamId, userId);
   const product = await prisma.product.findFirst({ where: { id: productId, streamId } });
   if (!product) {
     throw new HttpError(404, "Produsul nu exista in acest stream");

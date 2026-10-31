@@ -27,6 +27,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://user:password@localhost:5432/liveshop_test?schema=public
+      COGNITO_USER_POOL_ID: eu-north-1_ci0000000
+      COGNITO_CLIENT_ID: ci-client-id
 
     defaults:
       run:

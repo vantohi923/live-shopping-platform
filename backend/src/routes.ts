@@ -7,9 +7,11 @@ import {
   postProduct,
 } from "./modules/products/products.routes";
 import { getStreams, postStream } from "./modules/streams/streams.routes";
+import { getMe } from "./modules/users/users.routes";
 
 export const routes = {
   "/health": { GET: handle(() => json({ status: "ok" })) },
+  "/api/me": { GET: handle(getMe) },
   "/api/streams": { GET: handle(getStreams), POST: handle(postStream) },
   "/api/streams/:id/products": { GET: handle(getStreamProducts) },
   "/api/streams/:id/pin": { POST: handle(postPinProduct) },

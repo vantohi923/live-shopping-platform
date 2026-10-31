@@ -19,13 +19,14 @@ enum OrderStatus {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String
-  role      Role     @default(VIEWER)
-  createdAt DateTime @default(now())
-  streams   Stream[]
-  orders    Order[]
+  id         String   @id @default(uuid())
+  cognitoSub String?  @unique
+  email      String   @unique
+  name       String
+  role       Role     @default(VIEWER)
+  createdAt  DateTime @default(now())
+  streams    Stream[]
+  orders     Order[]
 }
 
 model Stream {
